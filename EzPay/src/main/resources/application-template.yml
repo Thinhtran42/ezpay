@@ -2,12 +2,10 @@ server:
   port: 8080
 
 spring:
-  profiles:
-    action: docker
   datasource:
-    url: jdbc:postgresql://localhost:5432/ezpay_db
-    username: admin
-    password: admin
+    url: jdbc:postgresql://<host>:<port>/<your_database>
+    username: <your_username>
+    password: <your_password>
     driver-class-name: org.postgresql.Driver
 
   jpa:
@@ -30,7 +28,7 @@ spring:
 
 # Cấu hình JWT
 jwt:
-  secret: ezpay-kiddy-256-bit-secret-enzpay-256-bit-secret
+  secret: <your_jwt_secret>
   expirationMs: 86400000 # 1 ngày
 
 # Swagger
