@@ -23,6 +23,10 @@ public class JwtTokenProvider {
     }
 
     public String generateToken(String username) {
+        if (username == null || username.trim().isEmpty()) {
+            throw new IllegalArgumentException("Username cannot be null or empty");
+        }
+        
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + expirationMs);
 

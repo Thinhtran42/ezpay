@@ -31,36 +31,48 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String path = request.getRequestURI();
 
         // 🚫 Bỏ qua filter cho các path công khai
-        if (path.startsWith("/api/auth") || path.startsWith("/swagger-ui") || path.startsWith("/v3/api-docs")) {
+        if (path != null && (path.startsWith("/v1/api/auth") || path.startsWith("/api/auth") || path.startsWith("/swagger-ui") || path.startsWith("/v3/api-docs"))) {
             filterChain.doFilter(request, response);
             return;
         }
 
-        String header = request.getHeader(HttpHeaders.AUTHORIZATION);
-        if (header == null || !header.startsWith("Bearer ")) {
-            filterChain.doFilter(request, response);
-            return;
-        }
+        try {
+            String header = request.getHeader(HttpHeaders.AUTHORIZATION);
+            if (header == null || !header.startsWith("Bearer ")) {
+                filterChain.doFilter(request, response);
+                return;
+            }
 
-        String token = header.substring(7);
-        if (!jwtProvider.validateToken(token)) {
-            filterChain.doFilter(request, response);
-            return;
-        }
+            String token = header.substring(7).trim(); // Trim to remove extra spaces
+            if (token.isEmpty()) {
+                filterChain.doFilter(request, response);
+                return;
+            }
 
-        String username = jwtProvider.getUsernameFromToken(token);
-        var userOpt = userRepository.findByUserName(username);
-        if (userOpt.isEmpty()) {
-            filterChain.doFilter(request, response);
-            return;
-        }
+            if (!jwtProvider.validateToken(token)) {
+                filterChain.doFilter(request, response);
+                return;
+            }
 
-        var user = userOpt.get();
-        var auth = new UsernamePasswordAuthenticationToken(
-                user, null, null
-        );
-        auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-        SecurityContextHolder.getContext().setAuthentication(auth);
+            String username = jwtProvider.getUsernameFromToken(token);
+            var userOpt = userRepository.findByUserName(username);
+            if (userOpt.isEmpty()) {
+                filterChain.doFilter(request, response);
+                return;
+            }
+
+            var user = userOpt.get();
+            var auth = new UsernamePasswordAuthenticationToken(
+                    user, null, null
+            );
+            auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+            SecurityContextHolder.getContext().setAuthentication(auth);
+
+        } catch (Exception e) {
+            // Log the exception and continue without authentication
+            System.err.println("JWT Authentication error: " + e.getMessage());
+            // Don't set authentication in case of any error
+        }
 
         filterChain.doFilter(request, response);
     }

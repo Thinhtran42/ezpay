@@ -10,6 +10,7 @@ import lombok.*;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@ToString
 public class User {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -30,7 +31,22 @@ public class User {
     private String fullName;
 
     @Enumerated(EnumType.STRING)
+    @Builder.Default
     private Role role = Role.USER;
 
+    @Builder.Default
     private Double balance = 0.0;
+    
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) return true;
+        if (obj == null || getClass() != obj.getClass()) return false;
+        User user = (User) obj;
+        return id != null && id.equals(user.id);
+    }
+    
+    @Override
+    public int hashCode() {
+        return id != null ? id.hashCode() : 0;
+    }
 }

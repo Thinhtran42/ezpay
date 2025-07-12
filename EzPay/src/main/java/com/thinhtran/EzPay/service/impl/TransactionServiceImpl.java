@@ -23,6 +23,14 @@ public class TransactionServiceImpl implements TransactionService {
     @Override
     @Transactional
     public void transfer(String senderUsername, TransferRequest request) {
+        // Validate amount
+        if (request.getAmount() == null) {
+            throw new RuntimeException("Amount cannot be null");
+        }
+        if (request.getAmount() <= 0) {
+            throw new RuntimeException("Amount must be positive");
+        }
+        
         var sender = userRepository.findByUserName(senderUsername).orElseThrow();
         var receiver = userRepository.findByUserName(request.getReceiverUsername()).orElseThrow();
 
