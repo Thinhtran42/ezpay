@@ -7,11 +7,15 @@ cơ bản của một ứng dụng chuyển tiền như ZaloPay, MoMo, phù hợ
 
 ## 🚀 Tính năng
 
-- ✅ **Authentication**: Đăng ký, đăng nhập bằng JWT
-- ✅ **Security**: Mã hoá mật khẩu bằng BCrypt
-- ✅ **Transfer**: Chuyển tiền giữa người dùng
-- ✅ **History**: Lịch sử giao dịch
-- ✅ **Profile**: Thông tin tài khoản
+- ✅ **Authentication**: Đăng ký, đăng nhập bằng JWT với email verification
+- ✅ **Security**: Mã hoá mật khẩu bằng BCrypt, forgot password
+- ✅ **Transfer**: Chuyển tiền giữa người dùng với OTP
+- ✅ **History**: Lịch sử giao dịch với search & filter
+- ✅ **Profile**: Quản lý thông tin tài khoản và đổi mật khẩu
+- ✅ **Admin Panel**: Dashboard, top-up, thống kê, quản lý user
+- ✅ **Email Service**: Xác nhận email, reset password với SendGrid
+- ✅ **Realtime Notifications**: Thông báo chuyển tiền qua WebSocket
+- ✅ **User Search**: Tìm kiếm người dùng theo phone/email/username
 - ✅ **API Docs**: Swagger UI hỗ trợ test API
 
 ---
@@ -20,10 +24,14 @@ cơ bản của một ứng dụng chuyển tiền như ZaloPay, MoMo, phù hợ
 
 | Thành phần | Công nghệ                   |
 |------------|-----------------------------|
-| Backend    | Spring Boot 3.5.3 (Java 17) |
+| Backend    | Spring Boot 3.2.4 (Java 17) |
 | Security   | Spring Security + JWT       |
 | Database   | PostgreSQL 15               |
 | ORM        | Spring Data JPA             |
+| Email      | SendGrid API                |
+| Realtime   | Spring WebSocket + STOMP    |
+| Frontend   | React 19.1 + TypeScript    |
+| UI         | Tailwind CSS + Heroicons   |
 | API Docs   | Swagger (springdoc-openapi) |
 | Build      | Maven 3.9                   |
 | Container  | Docker + Docker Compose     |
@@ -52,7 +60,7 @@ cp src/main/resources/application-template.yml src/main/resources/application.ym
 # Chỉnh sửa thông tin database trong application.yml
 ```
 
-### 3. Chạy ứng dụng
+### 3. Chạy Backend
 
 ```bash
 # Chạy với Maven
@@ -62,7 +70,22 @@ cp src/main/resources/application-template.yml src/main/resources/application.ym
 docker-compose up -d
 ```
 
-**Ứng dụng chạy tại:** `http://localhost:8080`
+**Backend API chạy tại:** `http://localhost:8080`
+
+### 4. Chạy Frontend
+
+```bash
+# Di chuyển đến thư mục frontend
+cd frontend
+
+# Cài đặt dependencies
+npm install
+
+# Chạy development server
+npm start
+```
+
+**Frontend chạy tại:** `http://localhost:3000`
 
 ---
 
@@ -72,15 +95,36 @@ docker-compose up -d
 
 - `POST /v1/api/auth/register` - Đăng ký
 - `POST /v1/api/auth/login` - Đăng nhập
+- `POST /v1/api/auth/verify-email` - Xác nhận email
+- `POST /v1/api/auth/resend-verification` - Gửi lại email xác nhận
+- `POST /v1/api/auth/forgot-password` - Quên mật khẩu
+- `POST /v1/api/auth/reset-password` - Đặt lại mật khẩu
+- `PUT /v1/api/auth/change-password` - Đổi mật khẩu
 
-### User Profile
+### User Management
 
 - `GET /v1/api/users/me` - Thông tin tài khoản
+- `PUT /v1/api/users/me` - Cập nhật thông tin
+- `GET /v1/api/users` - Danh sách user (Admin)
+- `GET /v1/api/users/search` - Tìm kiếm user
 
 ### Transactions
 
 - `POST /v1/api/transactions/transfer` - Chuyển tiền
 - `GET /v1/api/transactions/history` - Lịch sử giao dịch
+- `POST /v1/api/transactions/top-up` - Nạp tiền (Admin)
+- `GET /v1/api/transactions/statistics` - Thống kê (Admin)
+
+### Notifications
+
+- `GET /v1/api/notifications` - Danh sách thông báo
+- `GET /v1/api/notifications/unread` - Thông báo chưa đọc
+- `PUT /v1/api/notifications/{id}/read` - Đánh dấu đã đọc
+- `PUT /v1/api/notifications/read-all` - Đánh dấu tất cả đã đọc
+
+### WebSocket
+
+- `WS /ws` - WebSocket endpoint cho realtime notifications
 
 ### API Documentation
 
@@ -135,6 +179,14 @@ POSTGRES_PASSWORD: your_password
 # JWT
 JWT_SECRET: your-secret-key-256-bits
 JWT_EXPIRATION: 86400000 # 24 hours
+
+# SendGrid Email
+SENDGRID_API_KEY: your_sendgrid_api_key
+SENDGRID_FROM_EMAIL: noreply@ezpay.com
+SENDGRID_FROM_NAME: EzPay
+
+# Application
+APP_FRONTEND_URL: http://localhost:3000
 ```
 
 ---

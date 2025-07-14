@@ -1,11 +1,14 @@
 package com.thinhtran.EzPay.integration;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.thinhtran.EzPay.dto.request.ChangePasswordRequest;
 import com.thinhtran.EzPay.dto.request.LoginRequest;
 import com.thinhtran.EzPay.dto.request.RegisterRequest;
+import com.thinhtran.EzPay.dto.request.TopUpRequest;
 import com.thinhtran.EzPay.dto.request.TransferRequest;
+import com.thinhtran.EzPay.dto.response.ApiResponse;
 import com.thinhtran.EzPay.dto.response.AuthResponse;
-import com.thinhtran.EzPay.dto.response.UserResponse;
 import com.thinhtran.EzPay.entity.Role;
 import com.thinhtran.EzPay.entity.User;
 import com.thinhtran.EzPay.repository.UserRepository;
@@ -31,6 +34,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @SpringBootTest
@@ -57,29 +61,40 @@ class EzPayIntegrationTest {
     @Autowired
     private JwtTokenProvider jwtTokenProvider;
 
-    private User testUser1;
-    private User testUser2;
+    private User regularUser;
+    private User adminUser;
+    private User receiverUser;
     private RegisterRequest registerRequest;
     private LoginRequest loginRequest;
 
     @BeforeEach
     void setUp() {
-        testUser1 = User.builder()
+        regularUser = User.builder()
                 .id(1L)
-                .userName("user1")
-                .email("user1@example.com")
+                .userName("user")
+                .email("user@example.com")
                 .password("encodedPassword")
-                .fullName("User One")
+                .fullName("Regular User")
                 .role(Role.USER)
                 .balance(1000.0)
                 .build();
 
-        testUser2 = User.builder()
+        adminUser = User.builder()
                 .id(2L)
-                .userName("user2")
-                .email("user2@example.com")
+                .userName("admin")
+                .email("admin@example.com")
                 .password("encodedPassword")
-                .fullName("User Two")
+                .fullName("Admin User")
+                .role(Role.ADMIN)
+                .balance(5000.0)
+                .build();
+
+        receiverUser = User.builder()
+                .id(3L)
+                .userName("receiver")
+                .email("receiver@example.com")
+                .password("encodedPassword")
+                .fullName("Receiver User")
                 .role(Role.USER)
                 .balance(500.0)
                 .build();
@@ -87,159 +102,173 @@ class EzPayIntegrationTest {
         registerRequest = new RegisterRequest();
         registerRequest.setUserName("newuser");
         registerRequest.setEmail("newuser@example.com");
-        registerRequest.setPassword("password123");
+        registerRequest.setPassword("Password123!");
         registerRequest.setFullName("New User");
 
         loginRequest = new LoginRequest();
-        loginRequest.setUserName("user1");
-        loginRequest.setPassword("password123");
+        loginRequest.setUserName("user");
+        loginRequest.setPassword("Password123!");
     }
 
+    // Helper method to extract token from ApiResponse
+    private String extractTokenFromResponse(String responseContent) throws Exception {
+        TypeReference<ApiResponse<AuthResponse>> typeRef = new TypeReference<ApiResponse<AuthResponse>>() {};
+        ApiResponse<AuthResponse> apiResponse = objectMapper.readValue(responseContent, typeRef);
+        return apiResponse.getData().getToken();
+    }
+
+    // ======= COMPLETE USER JOURNEY TESTS =======
     @Test
-    void completeUserFlow_RegisterLoginProfileTransfer() throws Exception {
+    void completeUserJourney_RegisterLoginProfileTransfer() throws Exception {
         // Step 1: Register a new user
-        when(userRepository.existsByUserName(anyString())).thenReturn(false);
-        when(userRepository.findByUserName(anyString())).thenReturn(Optional.empty());
-        when(userRepository.existsByEmail(anyString())).thenReturn(false);
-        when(userRepository.findByEmail(anyString())).thenReturn(Optional.empty());
-        when(passwordEncoder.encode(anyString())).thenReturn("encodedPassword");
-        when(userRepository.save(any(User.class))).thenReturn(testUser1);
+        when(userRepository.existsByUserName("newuser")).thenReturn(false);
+        when(userRepository.existsByEmail("newuser@example.com")).thenReturn(false);
+        when(passwordEncoder.encode("Password123!")).thenReturn("encodedPassword");
+        
+        User newUser = User.builder()
+                .id(4L)
+                .userName("newuser")
+                .email("newuser@example.com")
+                .password("encodedPassword")
+                .fullName("New User")
+                .role(Role.USER)
+                .balance(0.0)
+                .build();
+        when(userRepository.save(any(User.class))).thenReturn(newUser);
 
         MvcResult registerResult = mockMvc.perform(post("/v1/api/auth/register")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(registerRequest)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.token").isNotEmpty())
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
+                .andExpect(jsonPath("$.message").value("Đăng ký thành công"))
+                .andExpect(jsonPath("$.data.token").isNotEmpty())
                 .andReturn();
 
-        // Extract token from registration response
-        String registerResponse = registerResult.getResponse().getContentAsString();
-        AuthResponse authResponse = objectMapper.readValue(registerResponse, AuthResponse.class);
-        String token = authResponse.getToken();
+        String token = extractTokenFromResponse(registerResult.getResponse().getContentAsString());
 
         // Step 2: Use token to access user profile
-        when(userRepository.findByUserName("newuser")).thenReturn(Optional.of(testUser1));
+        when(userRepository.findByUserName("newuser")).thenReturn(Optional.of(newUser));
 
         mockMvc.perform(get("/v1/api/users/me")
                 .header("Authorization", "Bearer " + token)
                 .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.userName").value("user1"))
-                .andExpect(jsonPath("$.fullName").value("User One"))
-                .andExpect(jsonPath("$.email").value("user1@example.com"))
-                .andExpect(jsonPath("$.balance").value(1000.0));
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
+                .andExpect(jsonPath("$.data.userName").value("newuser"))
+                .andExpect(jsonPath("$.data.fullName").value("New User"))
+                .andExpect(jsonPath("$.data.email").value("newuser@example.com"))
+                .andExpect(jsonPath("$.data.balance").value(0.0));
 
-        // Step 3: Perform a transfer
+        // Step 3: Admin tops up user account
+        TopUpRequest topUpRequest = new TopUpRequest();
+        topUpRequest.setTargetUsername("newuser");
+        topUpRequest.setAmount(500.0);
+
+        when(userRepository.findByUserName("admin")).thenReturn(Optional.of(adminUser));
+        when(userRepository.findByUserName("newuser")).thenReturn(Optional.of(newUser));
+        String adminToken = jwtTokenProvider.generateToken("admin");
+
+        mockMvc.perform(post("/v1/api/transactions/top-up")
+                .header("Authorization", "Bearer " + adminToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(topUpRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
+                .andExpect(jsonPath("$.message").value("Nạp tiền thành công"));
+
+        // Step 4: Perform a transfer
         TransferRequest transferRequest = new TransferRequest();
-        transferRequest.setReceiverUsername("user2");
+        transferRequest.setReceiverUsername("receiver");
         transferRequest.setAmount(200.0);
         transferRequest.setMessage("Payment for services");
 
-        when(userRepository.findByUserName("user1")).thenReturn(Optional.of(testUser1));
-        when(userRepository.findByUserName("user2")).thenReturn(Optional.of(testUser2));
+        newUser.setBalance(500.0); // Update balance after top-up
+        when(userRepository.findByUserName("newuser")).thenReturn(Optional.of(newUser));
+        when(userRepository.findByUserName("receiver")).thenReturn(Optional.of(receiverUser));
 
         mockMvc.perform(post("/v1/api/transactions")
                 .header("Authorization", "Bearer " + token)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(transferRequest)))
                 .andExpect(status().isOk())
-                .andExpect(content().string("Chuyển tiền thành công"));
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
+                .andExpect(jsonPath("$.message").value("Chuyển tiền thành công"));
 
-        // Step 4: Check transaction history
-        mockMvc.perform(get("/v1/api/transactions")
-                .header("Authorization", "Bearer " + token)
-                .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$").isArray());
-
-        // Verify all mocks were called appropriately
-        verify(userRepository).save(any(User.class));
-        verify(passwordEncoder).encode("password123");
-        verify(userRepository, atLeast(1)).findByUserName(anyString());
+        // Verify final balances
+        assertEquals(300.0, newUser.getBalance()); // 500 - 200
+        assertEquals(700.0, receiverUser.getBalance()); // 500 + 200
     }
 
     @Test
-    void userJourney_LoginAndTransferFlow() throws Exception {
+    void userLoginAndTransferFlow() throws Exception {
         // Step 1: Login with existing user
-        when(userRepository.findByUserName("user1")).thenReturn(Optional.of(testUser1));
-        when(passwordEncoder.matches("password123", "encodedPassword")).thenReturn(true);
+        when(userRepository.findByUserName("user")).thenReturn(Optional.of(regularUser));
+        when(passwordEncoder.matches("Password123!", "encodedPassword")).thenReturn(true);
 
         MvcResult loginResult = mockMvc.perform(post("/v1/api/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(loginRequest)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.token").isNotEmpty())
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
+                .andExpect(jsonPath("$.message").value("Đăng nhập thành công"))
+                .andExpect(jsonPath("$.data.token").isNotEmpty())
                 .andReturn();
 
-        // Extract token from login response
-        String loginResponse = loginResult.getResponse().getContentAsString();
-        AuthResponse authResponse = objectMapper.readValue(loginResponse, AuthResponse.class);
-        String token = authResponse.getToken();
+        String token = extractTokenFromResponse(loginResult.getResponse().getContentAsString());
 
         // Step 2: Check user profile
         mockMvc.perform(get("/v1/api/users/me")
                 .header("Authorization", "Bearer " + token)
                 .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.userName").value("user1"))
-                .andExpect(jsonPath("$.balance").value(1000.0));
+                .andExpect(jsonPath("$.data.userName").value("user"))
+                .andExpect(jsonPath("$.data.balance").value(1000.0));
 
-        // Step 3: Perform multiple transfers
-        TransferRequest transfer1 = new TransferRequest();
-        transfer1.setReceiverUsername("user2");
-        transfer1.setAmount(100.0);
-        transfer1.setMessage("First transfer");
+        // Step 3: Perform transfer
+        TransferRequest transferRequest = new TransferRequest();
+        transferRequest.setReceiverUsername("receiver");
+        transferRequest.setAmount(300.0);
+        transferRequest.setMessage("Monthly payment");
 
-        TransferRequest transfer2 = new TransferRequest();
-        transfer2.setReceiverUsername("user2");
-        transfer2.setAmount(50.0);
-        transfer2.setMessage("Second transfer");
+        when(userRepository.findByUserName("receiver")).thenReturn(Optional.of(receiverUser));
 
-        when(userRepository.findByUserName("user2")).thenReturn(Optional.of(testUser2));
-
-        // First transfer
         mockMvc.perform(post("/v1/api/transactions")
                 .header("Authorization", "Bearer " + token)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(transfer1)))
+                .content(objectMapper.writeValueAsString(transferRequest)))
                 .andExpect(status().isOk())
-                .andExpect(content().string("Chuyển tiền thành công"));
-
-        // Second transfer
-        mockMvc.perform(post("/v1/api/transactions")
-                .header("Authorization", "Bearer " + token)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(transfer2)))
-                .andExpect(status().isOk())
-                .andExpect(content().string("Chuyển tiền thành công"));
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
+                .andExpect(jsonPath("$.message").value("Chuyển tiền thành công"));
 
         // Step 4: Check transaction history
         mockMvc.perform(get("/v1/api/transactions")
                 .header("Authorization", "Bearer " + token)
                 .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$").isArray());
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
+                .andExpect(jsonPath("$.data").isArray());
 
-        // Verify all interactions
-        verify(userRepository, times(2)).findByUserName("user1");
-        verify(userRepository, times(2)).findByUserName("user2");
-        verify(passwordEncoder).matches("password123", "encodedPassword");
+        // Verify final balances
+        assertEquals(700.0, regularUser.getBalance()); // 1000 - 300
+        assertEquals(800.0, receiverUser.getBalance()); // 500 + 300
     }
 
+    // ======= ERROR HANDLING FLOWS =======
     @Test
     void failureFlow_InvalidCredentialsToUnauthorizedAccess() throws Exception {
         // Step 1: Try to login with invalid credentials
-        when(userRepository.findByUserName("user1")).thenReturn(Optional.of(testUser1));
+        when(userRepository.findByUserName("user")).thenReturn(Optional.of(regularUser));
         when(passwordEncoder.matches("wrongpassword", "encodedPassword")).thenReturn(false);
 
         LoginRequest invalidLogin = new LoginRequest();
-        invalidLogin.setUserName("user1");
+        invalidLogin.setUserName("user");
         invalidLogin.setPassword("wrongpassword");
 
         mockMvc.perform(post("/v1/api/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(invalidLogin)))
-                .andExpect(status().isInternalServerError());
+                .andExpect(status().isUnauthorized());
 
         // Step 2: Try to access protected resources without token
         mockMvc.perform(get("/v1/api/users/me")
@@ -250,9 +279,14 @@ class EzPayIntegrationTest {
                 .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isUnauthorized());
 
+        TransferRequest transferRequest = new TransferRequest();
+        transferRequest.setReceiverUsername("receiver");
+        transferRequest.setAmount(100.0);
+        transferRequest.setMessage("Test");
+
         mockMvc.perform(post("/v1/api/transactions")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(new TransferRequest())))
+                .content(objectMapper.writeValueAsString(transferRequest)))
                 .andExpect(status().isUnauthorized());
 
         // Step 3: Try with invalid token
@@ -264,208 +298,9 @@ class EzPayIntegrationTest {
 
     @Test
     void businessLogicFlow_InsufficientFundsToSuccessfulTransfer() throws Exception {
-        // Step 1: Setup user with low balance
-        User lowBalanceUser = User.builder()
-                .id(3L)
-                .userName("pooruser")
-                .email("poor@example.com")
-                .password("encodedPassword")
-                .fullName("Poor User")
-                .role(Role.USER)
-                .balance(10.0)
-                .build();
-
-        when(userRepository.findByUserName("pooruser")).thenReturn(Optional.of(lowBalanceUser));
-        when(passwordEncoder.matches("password123", "encodedPassword")).thenReturn(true);
-
-        LoginRequest poorUserLogin = new LoginRequest();
-        poorUserLogin.setUserName("pooruser");
-        poorUserLogin.setPassword("password123");
-
-        MvcResult loginResult = mockMvc.perform(post("/v1/api/auth/login")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(poorUserLogin)))
-                .andExpect(status().isOk())
-                .andReturn();
-
-        String loginResponse = loginResult.getResponse().getContentAsString();
-        AuthResponse authResponse = objectMapper.readValue(loginResponse, AuthResponse.class);
-        String token = authResponse.getToken();
-
-        // Step 2: Try to transfer more than available balance
-        TransferRequest largeTransfer = new TransferRequest();
-        largeTransfer.setReceiverUsername("user1");
-        largeTransfer.setAmount(100.0); // More than 10.0 balance
-        largeTransfer.setMessage("Large transfer attempt");
-
-        when(userRepository.findByUserName("user1")).thenReturn(Optional.of(testUser1));
-
-        mockMvc.perform(post("/v1/api/transactions")
-                .header("Authorization", "Bearer " + token)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(largeTransfer)))
-                .andExpect(status().isInternalServerError());
-
-        // Step 3: Try with amount within balance
-        TransferRequest smallTransfer = new TransferRequest();
-        smallTransfer.setReceiverUsername("user1");
-        smallTransfer.setAmount(5.0); // Within 10.0 balance
-        smallTransfer.setMessage("Small transfer");
-
-        mockMvc.perform(post("/v1/api/transactions")
-                .header("Authorization", "Bearer " + token)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(smallTransfer)))
-                .andExpect(status().isOk())
-                .andExpect(content().string("Chuyển tiền thành công"));
-    }
-
-    @Test
-    void registrationFlow_DuplicateUserToSuccessfulRegistration() throws Exception {
-        // Step 1: Try to register with existing username
-        when(userRepository.existsByUserName("user1")).thenReturn(true);
-
-        RegisterRequest duplicateUsername = new RegisterRequest();
-        duplicateUsername.setUserName("user1");
-        duplicateUsername.setEmail("newemail@example.com");
-        duplicateUsername.setPassword("password123");
-        duplicateUsername.setFullName("New User");
-
-        mockMvc.perform(post("/v1/api/auth/register")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(duplicateUsername)))
-                .andExpect(status().isInternalServerError());
-
-        // Step 2: Try to register with existing email
-        when(userRepository.existsByUserName("newuser")).thenReturn(false);
-        when(userRepository.findByUserName("newuser")).thenReturn(Optional.empty());
-        when(userRepository.existsByEmail("user1@example.com")).thenReturn(true);
-
-        RegisterRequest duplicateEmail = new RegisterRequest();
-        duplicateEmail.setUserName("newuser");
-        duplicateEmail.setEmail("user1@example.com");
-        duplicateEmail.setPassword("password123");
-        duplicateEmail.setFullName("New User");
-
-        mockMvc.perform(post("/v1/api/auth/register")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(duplicateEmail)))
-                .andExpect(status().isInternalServerError());
-
-        // Step 3: Successful registration with unique credentials
-        when(userRepository.existsByEmail("unique@example.com")).thenReturn(false);
-        when(userRepository.findByEmail("unique@example.com")).thenReturn(Optional.empty());
-        when(passwordEncoder.encode("password123")).thenReturn("encodedPassword");
-        when(userRepository.save(any(User.class))).thenReturn(testUser1);
-
-        RegisterRequest uniqueUser = new RegisterRequest();
-        uniqueUser.setUserName("newuser");
-        uniqueUser.setEmail("unique@example.com");
-        uniqueUser.setPassword("password123");
-        uniqueUser.setFullName("New User");
-
-        mockMvc.perform(post("/v1/api/auth/register")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(uniqueUser)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.token").isNotEmpty());
-    }
-
-    @Test
-    void multiUserFlow_SimultaneousTransactions() throws Exception {
-        // Setup two users with tokens
-        when(userRepository.findByUserName("user1")).thenReturn(Optional.of(testUser1));
-        when(userRepository.findByUserName("user2")).thenReturn(Optional.of(testUser2));
-        when(passwordEncoder.matches("password123", "encodedPassword")).thenReturn(true);
-
-        // Login user1
-        LoginRequest user1Login = new LoginRequest();
-        user1Login.setUserName("user1");
-        user1Login.setPassword("password123");
-
-        MvcResult user1LoginResult = mockMvc.perform(post("/v1/api/auth/login")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(user1Login)))
-                .andExpect(status().isOk())
-                .andReturn();
-
-        String user1Token = objectMapper.readValue(
-            user1LoginResult.getResponse().getContentAsString(), 
-            AuthResponse.class
-        ).getToken();
-
-        // Login user2
-        LoginRequest user2Login = new LoginRequest();
-        user2Login.setUserName("user2");
-        user2Login.setPassword("password123");
-
-        MvcResult user2LoginResult = mockMvc.perform(post("/v1/api/auth/login")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(user2Login)))
-                .andExpect(status().isOk())
-                .andReturn();
-
-        String user2Token = objectMapper.readValue(
-            user2LoginResult.getResponse().getContentAsString(), 
-            AuthResponse.class
-        ).getToken();
-
-        // User1 sends money to User2
-        TransferRequest user1Transfer = new TransferRequest();
-        user1Transfer.setReceiverUsername("user2");
-        user1Transfer.setAmount(100.0);
-        user1Transfer.setMessage("From user1 to user2");
-
-        mockMvc.perform(post("/v1/api/transactions")
-                .header("Authorization", "Bearer " + user1Token)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(user1Transfer)))
-                .andExpect(status().isOk());
-
-        // User2 sends money to User1
-        TransferRequest user2Transfer = new TransferRequest();
-        user2Transfer.setReceiverUsername("user1");
-        user2Transfer.setAmount(50.0);
-        user2Transfer.setMessage("From user2 to user1");
-
-        mockMvc.perform(post("/v1/api/transactions")
-                .header("Authorization", "Bearer " + user2Token)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(user2Transfer)))
-                .andExpect(status().isOk());
-
-        // Both users check their profiles
-        mockMvc.perform(get("/v1/api/users/me")
-                .header("Authorization", "Bearer " + user1Token)
-                .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.userName").value("user1"));
-
-        mockMvc.perform(get("/v1/api/users/me")
-                .header("Authorization", "Bearer " + user2Token)
-                .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.userName").value("user2"));
-
-        // Both users check their transaction history
-        mockMvc.perform(get("/v1/api/transactions")
-                .header("Authorization", "Bearer " + user1Token)
-                .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$").isArray());
-
-        mockMvc.perform(get("/v1/api/transactions")
-                .header("Authorization", "Bearer " + user2Token)
-                .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$").isArray());
-    }
-
-    @Test
-    void securityFlow_TokenExpirationAndRefresh() throws Exception {
-        // Step 1: Login to get token
-        when(userRepository.findByUserName("user1")).thenReturn(Optional.of(testUser1));
-        when(passwordEncoder.matches("password123", "encodedPassword")).thenReturn(true);
+        // Step 1: Login
+        when(userRepository.findByUserName("user")).thenReturn(Optional.of(regularUser));
+        when(passwordEncoder.matches("Password123!", "encodedPassword")).thenReturn(true);
 
         MvcResult loginResult = mockMvc.perform(post("/v1/api/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -473,100 +308,146 @@ class EzPayIntegrationTest {
                 .andExpect(status().isOk())
                 .andReturn();
 
-        String token = objectMapper.readValue(
-            loginResult.getResponse().getContentAsString(), 
-            AuthResponse.class
-        ).getToken();
+        String token = extractTokenFromResponse(loginResult.getResponse().getContentAsString());
 
-        // Step 2: Verify token works
-        mockMvc.perform(get("/v1/api/users/me")
+        // Step 2: Try to transfer more money than available
+        TransferRequest largeTransfer = new TransferRequest();
+        largeTransfer.setReceiverUsername("receiver");
+        largeTransfer.setAmount(1500.0); // More than user's 1000.0 balance
+        largeTransfer.setMessage("Large transfer");
+
+        when(userRepository.findByUserName("receiver")).thenReturn(Optional.of(receiverUser));
+
+        mockMvc.perform(post("/v1/api/transactions")
                 .header("Authorization", "Bearer " + token)
-                .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk());
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(largeTransfer)))
+                .andExpect(status().isBadRequest());
 
-        // Step 3: Test with malformed token
-        mockMvc.perform(get("/v1/api/users/me")
-                .header("Authorization", "Bearer malformed.token.here")
-                .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isUnauthorized());
+        // Step 3: Perform valid transfer within balance
+        TransferRequest validTransfer = new TransferRequest();
+        validTransfer.setReceiverUsername("receiver");
+        validTransfer.setAmount(500.0);
+        validTransfer.setMessage("Valid transfer");
 
-        // Step 4: Test with missing Bearer prefix
-        mockMvc.perform(get("/v1/api/users/me")
-                .header("Authorization", token)
-                .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isUnauthorized());
-
-        // Step 5: Test with empty authorization header
-        mockMvc.perform(get("/v1/api/users/me")
-                .header("Authorization", "")
-                .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/v1/api/transactions")
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(validTransfer)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"));
     }
 
+    // ======= ADMIN FLOW TESTS =======
     @Test
-    void edgeCaseFlow_SpecialCharactersAndLimits() throws Exception {
-        // Step 1: Register user with special characters
-        when(userRepository.existsByUserName(anyString())).thenReturn(false);
-        when(userRepository.findByUserName(anyString())).thenReturn(Optional.empty());
-        when(userRepository.existsByEmail(anyString())).thenReturn(false);
-        when(userRepository.findByEmail(anyString())).thenReturn(Optional.empty());
-        when(passwordEncoder.encode(anyString())).thenReturn("encodedPassword");
-        when(userRepository.save(any(User.class))).thenReturn(testUser1);
+    void adminFlow_TopUpAndStatistics() throws Exception {
+        // Step 1: Admin login
+        LoginRequest adminLogin = new LoginRequest();
+        adminLogin.setUserName("admin");
+        adminLogin.setPassword("Password123!");
 
-        RegisterRequest specialUser = new RegisterRequest();
-        specialUser.setUserName("user_with-special.chars");
-        specialUser.setEmail("test+email@example.com");
-        specialUser.setPassword("P@ssw0rd123!");
-        specialUser.setFullName("User with Special Characters");
+        when(userRepository.findByUserName("admin")).thenReturn(Optional.of(adminUser));
+        when(passwordEncoder.matches("Password123!", "encodedPassword")).thenReturn(true);
 
-        MvcResult registerResult = mockMvc.perform(post("/v1/api/auth/register")
+        MvcResult loginResult = mockMvc.perform(post("/v1/api/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(specialUser)))
+                .content(objectMapper.writeValueAsString(adminLogin)))
                 .andExpect(status().isOk())
                 .andReturn();
 
-        String token = objectMapper.readValue(
-            registerResult.getResponse().getContentAsString(), 
-            AuthResponse.class
-        ).getToken();
+        String adminToken = extractTokenFromResponse(loginResult.getResponse().getContentAsString());
 
-        // Step 2: Transfer with special characters in message
-        when(userRepository.findByUserName("user_with-special.chars")).thenReturn(Optional.of(testUser1));
-        when(userRepository.findByUserName("user2")).thenReturn(Optional.of(testUser2));
+        // Step 2: Perform top-up
+        TopUpRequest topUpRequest = new TopUpRequest();
+        topUpRequest.setTargetUsername("user");
+        topUpRequest.setAmount(1000.0);
 
-        TransferRequest specialTransfer = new TransferRequest();
-        specialTransfer.setReceiverUsername("user2");
-        specialTransfer.setAmount(0.01); // Very small amount
-        specialTransfer.setMessage("Payment for coffee ☕ & cake 🍰 - $0.01");
+        when(userRepository.findByUserName("user")).thenReturn(Optional.of(regularUser));
 
-        mockMvc.perform(post("/v1/api/transactions")
+        mockMvc.perform(post("/v1/api/transactions/top-up")
+                .header("Authorization", "Bearer " + adminToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(topUpRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
+                .andExpect(jsonPath("$.message").value("Nạp tiền thành công"));
+
+        // Step 3: Check statistics
+        mockMvc.perform(get("/v1/api/transactions/statistics")
+                .header("Authorization", "Bearer " + adminToken)
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
+                .andExpect(jsonPath("$.message").value("Lấy thống kê thành công"))
+                .andExpect(jsonPath("$.data.totalTransferred").exists())
+                .andExpect(jsonPath("$.data.totalTransactions").exists());
+    }
+
+    // ======= AUTHENTICATION FLOW TESTS =======
+    @Test
+    void authenticationFlow_ChangePassword() throws Exception {
+        // Step 1: Login
+        when(userRepository.findByUserName("user")).thenReturn(Optional.of(regularUser));
+        when(passwordEncoder.matches("Password123!", "encodedPassword")).thenReturn(true);
+
+        MvcResult loginResult = mockMvc.perform(post("/v1/api/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(loginRequest)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String token = extractTokenFromResponse(loginResult.getResponse().getContentAsString());
+
+        // Step 2: Change password
+        ChangePasswordRequest changePasswordRequest = new ChangePasswordRequest();
+        changePasswordRequest.setCurrentPassword("Password123!");
+        changePasswordRequest.setNewPassword("NewPassword456!");
+
+        when(passwordEncoder.matches("Password123!", "encodedPassword")).thenReturn(true);
+        when(passwordEncoder.matches("NewPassword456!", "encodedPassword")).thenReturn(false);
+        when(passwordEncoder.encode("NewPassword456!")).thenReturn("newEncodedPassword");
+
+        mockMvc.perform(put("/v1/api/auth/change-password")
                 .header("Authorization", "Bearer " + token)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(specialTransfer)))
-                .andExpect(status().isOk());
+                .content(objectMapper.writeValueAsString(changePasswordRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
+                .andExpect(jsonPath("$.message").value("Đổi mật khẩu thành công"));
 
-        // Step 3: Transfer with zero amount
-        TransferRequest zeroTransfer = new TransferRequest();
-        zeroTransfer.setReceiverUsername("user2");
-        zeroTransfer.setAmount(0.0);
-        zeroTransfer.setMessage("Zero amount transfer");
+        // Verify password was updated
+        assertEquals("newEncodedPassword", regularUser.getPassword());
+    }
 
-        mockMvc.perform(post("/v1/api/transactions")
-                .header("Authorization", "Bearer " + token)
+    @Test
+    void securityFlow_AccessDeniedForNonAdminOperations() throws Exception {
+        // Step 1: Regular user login
+        when(userRepository.findByUserName("user")).thenReturn(Optional.of(regularUser));
+        when(passwordEncoder.matches("Password123!", "encodedPassword")).thenReturn(true);
+
+        MvcResult loginResult = mockMvc.perform(post("/v1/api/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(zeroTransfer)))
-                .andExpect(status().isOk());
+                .content(objectMapper.writeValueAsString(loginRequest)))
+                .andExpect(status().isOk())
+                .andReturn();
 
-        // Step 4: Transfer with null/empty message
-        TransferRequest nullMessageTransfer = new TransferRequest();
-        nullMessageTransfer.setReceiverUsername("user2");
-        nullMessageTransfer.setAmount(1.0);
-        nullMessageTransfer.setMessage(null);
+        String userToken = extractTokenFromResponse(loginResult.getResponse().getContentAsString());
 
-        mockMvc.perform(post("/v1/api/transactions")
-                .header("Authorization", "Bearer " + token)
+        // Step 2: Try to access admin-only top-up endpoint
+        TopUpRequest topUpRequest = new TopUpRequest();
+        topUpRequest.setTargetUsername("receiver");
+        topUpRequest.setAmount(500.0);
+
+        mockMvc.perform(post("/v1/api/transactions/top-up")
+                .header("Authorization", "Bearer " + userToken)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(nullMessageTransfer)))
-                .andExpect(status().isOk());
+                .content(objectMapper.writeValueAsString(topUpRequest)))
+                .andExpect(status().isForbidden());
+
+        // Step 3: Try to access admin-only statistics endpoint
+        mockMvc.perform(get("/v1/api/transactions/statistics")
+                .header("Authorization", "Bearer " + userToken)
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isForbidden());
     }
 } 

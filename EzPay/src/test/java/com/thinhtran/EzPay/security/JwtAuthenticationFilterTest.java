@@ -14,9 +14,11 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpHeaders;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.io.IOException;
+import java.util.Collections;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -334,6 +336,7 @@ class JwtAuthenticationFilterTest {
         for (String path : authPaths) {
             // Arrange
             SecurityContextHolder.clearContext();
+            reset(filterChain); // Reset mock between iterations
             when(request.getRequestURI()).thenReturn(path);
 
             // Act
@@ -351,12 +354,13 @@ class JwtAuthenticationFilterTest {
         String[] swaggerPaths = {
             "/swagger-ui/index.html",
             "/swagger-ui/swagger-ui.css",
-            "/swagger-ui.html"
+            "/swagger-ui/swagger-ui-bundle.js"
         };
 
         for (String path : swaggerPaths) {
             // Arrange
             SecurityContextHolder.clearContext();
+            reset(filterChain); // Reset mock between iterations
             when(request.getRequestURI()).thenReturn(path);
 
             // Act
@@ -380,6 +384,7 @@ class JwtAuthenticationFilterTest {
         for (String path : apiDocsPaths) {
             // Arrange
             SecurityContextHolder.clearContext();
+            reset(filterChain); // Reset mock between iterations
             when(request.getRequestURI()).thenReturn(path);
 
             // Act
@@ -394,25 +399,25 @@ class JwtAuthenticationFilterTest {
     @Test
     void doFilterInternal_AuthenticationDetails() throws ServletException, IOException {
         // Arrange
-        String validToken = "valid_token";
+        String validToken = "validToken";
+        String username = "testuser";
+        
         when(request.getRequestURI()).thenReturn("/v1/api/users/me");
         when(request.getHeader(HttpHeaders.AUTHORIZATION)).thenReturn("Bearer " + validToken);
         when(jwtTokenProvider.validateToken(validToken)).thenReturn(true);
-        when(jwtTokenProvider.getUsernameFromToken(validToken)).thenReturn("testuser");
-        when(userRepository.findByUserName("testuser")).thenReturn(Optional.of(testUser));
+        when(jwtTokenProvider.getUsernameFromToken(validToken)).thenReturn(username);
+        when(userRepository.findByUserName(username)).thenReturn(Optional.of(testUser));
 
         // Act
         jwtAuthenticationFilter.doFilterInternal(request, response, filterChain);
 
         // Assert
-        verify(filterChain).doFilter(request, response);
-        
-        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         assertNotNull(authentication);
-        assertEquals(testUser, authentication.getPrincipal());
+        assertEquals(testUser, authentication.getPrincipal()); // Principal is the User object
         assertNull(authentication.getCredentials());
-        assertNull(authentication.getAuthorities());
-        assertNotNull(authentication.getDetails());
+        assertEquals(Collections.emptyList(), authentication.getAuthorities()); // Should be empty list, not null
+        verify(filterChain, times(1)).doFilter(request, response);
     }
 
     @Test

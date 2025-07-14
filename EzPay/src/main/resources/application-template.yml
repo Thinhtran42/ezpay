@@ -37,3 +37,13 @@ springdoc:
     path: /v3/api-docs
   swagger-ui:
     path: /swagger-ui.html
+
+# SendGrid Email Configuration
+sendgrid:
+  api-key: <your_sendgrid_api_key>
+  from-email: noreply@ezpay.com
+  from-name: EzPay
+
+# Application Configuration
+app:
+  frontend-url: http://localhost:3000

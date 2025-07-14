@@ -22,41 +22,69 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final UserRepository userRepository;
 
     @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        boolean shouldSkip = path != null && (
+                path.startsWith("/v1/api/auth") || 
+                path.startsWith("/api/auth") || 
+                path.startsWith("/swagger-ui") || 
+                path.startsWith("/v3/api-docs")
+        );
+        
+        if (shouldSkip) {
+            System.out.println(">>> Filter SKIPPED for public path: " + path);
+        }
+        
+        return shouldSkip;
+    }
+
+    @Override
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
 
-        System.out.println(">>> Jwt Filter called: " + request.getRequestURI());
-
         String path = request.getRequestURI();
+        System.out.println(">>> JWT Filter called: " + path);
 
         // 🚫 Bỏ qua filter cho các path công khai
-        if (path != null && (path.startsWith("/v1/api/auth") || path.startsWith("/api/auth") || path.startsWith("/swagger-ui") || path.startsWith("/v3/api-docs"))) {
+        if (path != null && (path.startsWith("/v1/api/auth") || 
+                            path.startsWith("/api/auth") || 
+                            path.startsWith("/swagger-ui") || 
+                            path.startsWith("/v3/api-docs"))) {
+            System.out.println(">>> Bypassing JWT filter for public path: " + path);
             filterChain.doFilter(request, response);
             return;
         }
 
+        System.out.println(">>> Processing JWT authentication for: " + path);
+
         try {
             String header = request.getHeader(HttpHeaders.AUTHORIZATION);
             if (header == null || !header.startsWith("Bearer ")) {
+                System.out.println(">>> No valid Authorization header found");
                 filterChain.doFilter(request, response);
                 return;
             }
 
             String token = header.substring(7).trim(); // Trim to remove extra spaces
             if (token.isEmpty()) {
+                System.out.println(">>> Empty token found");
                 filterChain.doFilter(request, response);
                 return;
             }
 
             if (!jwtProvider.validateToken(token)) {
+                System.out.println(">>> Invalid token");
                 filterChain.doFilter(request, response);
                 return;
             }
 
             String username = jwtProvider.getUsernameFromToken(token);
+            System.out.println(">>> Valid token for user: " + username);
+            
             var userOpt = userRepository.findByUserName(username);
             if (userOpt.isEmpty()) {
+                System.out.println(">>> User not found: " + username);
                 filterChain.doFilter(request, response);
                 return;
             }
@@ -67,10 +95,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             );
             auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
             SecurityContextHolder.getContext().setAuthentication(auth);
+            System.out.println(">>> Authentication set for user: " + username);
 
         } catch (Exception e) {
             // Log the exception and continue without authentication
-            System.err.println("JWT Authentication error: " + e.getMessage());
+            System.err.println(">>> JWT Authentication error: " + e.getMessage());
             // Don't set authentication in case of any error
         }
 

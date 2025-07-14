@@ -3,7 +3,7 @@ server:
 
 spring:
   profiles:
-    action: docker
+    active: dev
   datasource:
     url: jdbc:postgresql://localhost:5432/ezpay_db
     username: admin
@@ -13,7 +13,7 @@ spring:
   jpa:
     hibernate:
       ddl-auto: update
-    show-sql: true
+    show-sql: false
     properties:
       hibernate:
         format_sql: true
@@ -33,9 +33,21 @@ jwt:
   secret: ezpay-kiddy-256-bit-secret-enzpay-256-bit-secret
   expirationMs: 86400000 # 1 ngày
 
+# SendGrid Email Configuration
+sendgrid:
+  api-key: ${SENDGRID_API_KEY:}
+  from-email: ${SENDGRID_FROM_EMAIL:noreply@ezpay.com}
+  from-name: ${SENDGRID_FROM_NAME:EzPay}
+
 # Swagger
 springdoc:
   api-docs:
     path: /v3/api-docs
   swagger-ui:
     path: /swagger-ui.html
+
+# Logging
+logging:
+  level:
+    com.thinhtran.EzPay.service.impl.EmailServiceImpl: DEBUG
+    root: INFO
